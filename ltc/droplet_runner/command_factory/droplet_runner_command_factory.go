@@ -575,13 +575,17 @@ func (factory *DropletRunnerCommandFactory) sendToCF(context *cli.Context) {
 	}
 
 	tempDir := fmt.Sprintf("%s/exported-droplet-%s", os.TempDir(), time.Now().Format("20150811-135745"))
-	if err := os.Mkdir(tempDir, 0444); err != nil {
-		return err
+	if err := os.Mkdir(tempDir, 0700); err != nil {
+		factory.UI.Say(fmt.Sprintf("error: %s", err))
+		return
 	}
 
-	if err := Chdir(tempDir); err != nil {
-		return err
+	if err := os.Chdir(tempDir); err != nil {
+		factory.UI.Say(fmt.Sprintf("error: %s", err))
+		return
 	}
+
+	fmt.Printf("Created and moved to %s", tempDir)
 }
 
 func (factory *DropletRunnerCommandFactory) makeZip(contentsPath string) (string, error) {
