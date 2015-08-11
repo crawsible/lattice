@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"encoding/json"
 
 	"github.com/cloudfoundry-incubator/lattice/ltc/app_runner"
 	"github.com/cloudfoundry-incubator/lattice/ltc/droplet_runner"
@@ -24,6 +26,7 @@ import (
 	"github.com/cloudfoundry-incubator/lattice/ltc/terminal/colors"
 	"github.com/codegangsta/cli"
 	"github.com/pivotal-golang/bytefmt"
+	"github.com/pivotal-golang/archiver/extractor"
 
 	app_runner_command_factory "github.com/cloudfoundry-incubator/lattice/ltc/app_runner/command_factory"
 )
@@ -574,18 +577,61 @@ func (factory *DropletRunnerCommandFactory) sendToCF(context *cli.Context) {
 		return
 	}
 
-	tempDir := fmt.Sprintf("%s/exported-droplet-%s", os.TempDir(), time.Now().Format("20150811-135745"))
+	tempDir := fmt.Sprintf("%sexported-droplet-%s", os.TempDir(), time.Now().Format("20150811-135745"))
 	if err := os.Mkdir(tempDir, 0700); err != nil {
 		factory.UI.Say(fmt.Sprintf("error: %s", err))
 		return
 	}
 
-	if err := os.Chdir(tempDir); err != nil {
+	os.Chdir(tempDir)
+	fmt.Printf("Created and moved to %s\n", tempDir)
+
+	factory.exportDroplet(context)
+	dropletTarFilename := fmt.Sprintf("%s/%s.tgz", tempDir, dropletName)
+	metadataFilename := fmt.Sprintf("%s/%s-metadata.json", tempDir, dropletName)
+	if _, err := os.Stat(dropletTarFilename); err != nil {
+		factory.UI.Say(fmt.Sprintf("error: %s", err))
+		return
+	} else if _, err := os.Stat(metadataFilename); err != nil {
 		factory.UI.Say(fmt.Sprintf("error: %s", err))
 		return
 	}
 
-	fmt.Printf("Created and moved to %s", tempDir)
+	metadataContents, err := ioutil.ReadFile(metadataFilename)
+	if err != nil {
+		factory.UI.Say(fmt.Sprintf("error: %s", err))
+		return
+	}
+
+	type DropletMetadata struct {
+		StartCommand map[string]string `json:"detected_start_command"`
+	}
+
+	var metadata DropletMetadata
+	if err := json.Unmarshal(metadataContents, &metadata); err != nil {
+		factory.UI.Say(fmt.Sprintf("error: %s", err))
+		return
+	}
+
+	fmt.Printf("detected start command: %s", metadata.StartCommand["web"])
+	
+	if err := os.Mkdir("staged_app", 0700); err != nil {
+		factory.UI.Say(fmt.Sprintf("error: %s", err))
+		return
+	}
+	os.Chdir("staged_app")
+
+	tgzExtractor := extractor.NewTgz()
+	if err := tgzExtractor.Extract(dropletTarFilename, "."); err != nil {
+		factory.UI.Say(fmt.Sprintf("error: %s", err))
+		return
+	}
+	os.Chdir("app")
+	
+	args := []string{"push", dropletName, "-b", "https://github.com/cloudfoundry/binary-buildpack", "-c", fmt.Sprintf("'%s'", metadata.StartCommand["web"])}
+	cmd := exec.Command("cf", args...)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	cmd.Run()
 }
 
 func (factory *DropletRunnerCommandFactory) makeZip(contentsPath string) (string, error) {
