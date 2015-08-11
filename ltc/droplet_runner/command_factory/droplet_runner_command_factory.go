@@ -268,6 +268,18 @@ func (factory *DropletRunnerCommandFactory) MakeExportDropletCommand() cli.Comma
 	return exportDropletCommand
 }
 
+func (factory *DropletRunnerCommandFactory) MakeSendToCFCommand() cli.Command {
+	var sendToCFCommand = cli.Command{
+		Name: "send-to-cf",
+		Aliases: []string{"scf"},
+		Usage: "Uploads a built droplet from Lattice to Cloud Foundry",
+		Description: "ltc send-to-cf DROPLET_NAME",
+		Action: factory.sendToCF,
+	}
+
+	return sendToCFCommand
+}
+
 func (factory *DropletRunnerCommandFactory) listDroplets(context *cli.Context) {
 	droplets, err := factory.dropletRunner.ListDroplets()
 	if err != nil {
@@ -551,6 +563,25 @@ func (factory *DropletRunnerCommandFactory) exportDroplet(context *cli.Context) 
 	}
 
 	factory.UI.SayLine(fmt.Sprintf("Droplet '%s' exported to %s and %s.", dropletName, dropletPath, metadataPath))
+}
+
+
+func (factory *DropletRunnerCommandFactory) sendToCF(context *cli.Context) {
+	dropletName := context.Args().First()
+	if dropletName == "" {
+		factory.UI.SayIncorrectUsage("")
+		factory.ExitHandler.Exit(exit_codes.InvalidSyntax)
+		return
+	}
+
+	tempDir := fmt.Sprintf("%s/exported-droplet-%s", os.TempDir(), time.Now().Format("20150811-135745"))
+	if err := os.Mkdir(tempDir, 0444); err != nil {
+		return err
+	}
+
+	if err := Chdir(tempDir); err != nil {
+		return err
+	}
 }
 
 func (factory *DropletRunnerCommandFactory) makeZip(contentsPath string) (string, error) {
